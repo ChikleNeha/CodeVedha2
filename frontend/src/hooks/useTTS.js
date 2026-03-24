@@ -184,7 +184,7 @@ async function speakChunks(chunks, voice) {
       const u = new SpeechSynthesisUtterance(chunk)
       
       // ✅ HUMAN-LIKE + FAST SETTINGS
-      u.rate = 1.4        // 40% FASTER (was 0.95)
+      u.rate = 1.2        // 40% FASTER (was 0.95)
       u.pitch = 1.15      // Slightly lively (was 1.0)
       u.volume = 0.95     // Clear but not blasting
       

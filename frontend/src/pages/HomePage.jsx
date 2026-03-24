@@ -18,18 +18,21 @@ export default function HomePage() {
   const countdownRef = useRef(null)
   const [countdown, setCountdown] = useState(8)
 
-  useEffect(() => { setTimeout(() => mainBtnRef.current?.focus(), 150) }, [])
+  // Refs to always have fresh values inside stt callbacks (avoids stale closures)
+  const spokenNameRef = useRef('')
+  const phaseRef = useRef(PHASES.WAIT)
 
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.key === ' ' || e.key === 'Enter') && phase === PHASES.WAIT) { e.preventDefault(); handleStart() }
-      if ((e.key === ' ' || e.key === 'Enter') && phase === PHASES.LISTENING) { e.preventDefault(); stt.stopListening() }
-      if ((e.key === ' ' || e.key === 'Enter') && phase === PHASES.CONFIRM) { e.preventDefault(); handleConfirm() }
-      if (e.key === 'Escape') { tts.stop(); stt.stopListening() }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [phase, spokenName, textInput])
+  const setSpokenNameBoth = (val) => {
+    spokenNameRef.current = val
+    setSpokenName(val)
+  }
+
+  const setPhaseBoth = (val) => {
+    phaseRef.current = val
+    setPhase(val)
+  }
+
+  useEffect(() => { setTimeout(() => mainBtnRef.current?.focus(), 150) }, [])
 
   const startCountdown = useCallback(() => {
     setCountdown(8)
@@ -41,21 +44,40 @@ export default function HomePage() {
     }, 1000)
   }, [stt])
 
+  const handleRetry = useCallback(() => {
+    clearInterval(countdownRef.current)
+    tts.stop()
+    stt.stopListening()
+    setSpokenNameBoth('')
+    setTextInput('')
+    setPhaseBoth(PHASES.WAIT)
+    setStatusMsg('Space dabao ya button dabao')
+    setTimeout(() => mainBtnRef.current?.focus(), 100)
+  }, [tts, stt])
+
   const handleStart = useCallback(async () => {
-    setPhase(PHASES.LISTENING)
+    setPhaseBoth(PHASES.LISTENING)
     setStatusMsg('Naam bol raha hai...')
-    // Speak intro then open mic
     await tts.speak(INTRO)
     await new Promise(r => setTimeout(r, 200))
+
+    // Reset before opening mic so any previous value is gone
+    setSpokenNameBoth('')
+
     stt.startListening((final) => {
       clearInterval(countdownRef.current)
-      if (final.trim()) {
-        setSpokenName(final.trim())
-        setPhase(PHASES.CONFIRM)
-        setStatusMsg(`Kya tumhara naam "${final.trim()}" hai?`)
-        tts.speak(`Kya tumhara naam ${final.trim()} hai? Confirm karne ke liye Space dabao.`)
+
+      // If phase changed to WAIT (user hit retry) before callback fired, ignore this result
+      if (phaseRef.current !== PHASES.LISTENING) return
+
+      const trimmed = final.trim()
+      if (trimmed) {
+        setSpokenNameBoth(trimmed)
+        setPhaseBoth(PHASES.CONFIRM)
+        setStatusMsg(`Kya tumhara naam "${trimmed}" hai?`)
+        tts.speak(`Kya tumhara naam ${trimmed} hai? Confirm karne ke liye Space dabao. Dobara bolne ke liye R dabao.`)
       } else {
-        setPhase(PHASES.WAIT)
+        setPhaseBoth(PHASES.WAIT)
         setStatusMsg('Naam sunai nahi diya. Dobara try karo.')
         setTimeout(() => mainBtnRef.current?.focus(), 100)
       }
@@ -64,34 +86,38 @@ export default function HomePage() {
   }, [tts, stt, startCountdown])
 
   const handleConfirm = useCallback(async () => {
-    const name = spokenName || textInput.trim()
+    const name = spokenNameRef.current || textInput.trim()
     if (!name) return
-    setPhase(PHASES.DONE)
+    setPhaseBoth(PHASES.DONE)
     setStatusMsg('Swagat hai, ' + name + '!')
     saveUsername(name)
     try { await createUser(name, sessionId) } catch (e) {}
     try { prewarmLessons() } catch (e) {}
     await tts.speak(`Swagat hai ${name}! Chalo Python seekhte hain!`)
     navigate('/learn')
-  }, [spokenName, textInput, saveUsername, sessionId, tts, navigate])
-
-  const handleRetry = useCallback(() => {
-    clearInterval(countdownRef.current)
-    tts.stop(); stt.stopListening()
-    setSpokenName(''); setTextInput('')
-    setPhase(PHASES.WAIT)
-    setStatusMsg('Space dabao ya button dabao')
-    setTimeout(() => mainBtnRef.current?.focus(), 100)
-  }, [tts, stt])
+  }, [textInput, saveUsername, sessionId, tts, navigate])
 
   const handleTextSubmit = useCallback(() => {
     const name = textInput.trim()
     if (!name) return
-    setSpokenName(name)
-    setPhase(PHASES.CONFIRM)
+    setSpokenNameBoth(name)
+    setPhaseBoth(PHASES.CONFIRM)
     setStatusMsg(`Kya tumhara naam "${name}" hai?`)
-    tts.speak(`Kya tumhara naam ${name} hai? Confirm karne ke liye Space dabao.`)
+    tts.speak(`Kya tumhara naam ${name} hai? Confirm karne ke liye Space dabao. Dobara bolne ke liye R dabao.`)
   }, [textInput, tts])
+
+  // Keydown handler after all useCallbacks so all functions are initialized
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.key === ' ' || e.key === 'Enter') && phaseRef.current === PHASES.WAIT) { e.preventDefault(); handleStart() }
+      if ((e.key === ' ' || e.key === 'Enter') && phaseRef.current === PHASES.LISTENING) { e.preventDefault(); stt.stopListening() }
+      if ((e.key === ' ' || e.key === 'Enter') && phaseRef.current === PHASES.CONFIRM) { e.preventDefault(); handleConfirm() }
+      if ((e.key === 'r' || e.key === 'R') && phaseRef.current === PHASES.CONFIRM) { e.preventDefault(); handleRetry() }
+      if (e.key === 'Escape') { tts.stop(); stt.stopListening() }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [handleStart, handleConfirm, handleRetry, tts, stt])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'var(--ink)' }}>
@@ -175,6 +201,9 @@ export default function HomePage() {
               <button className="btn-secondary" onClick={handleRetry} style={{ minWidth:140 }}
                 aria-label="Nahi, dobara bolunga">🔄 Dobara</button>
             </div>
+            <p style={{ color:'var(--muted)', fontSize:'0.82rem', marginTop:-8 }}>
+              Space / Enter = confirm &nbsp;•&nbsp; R = phir se bolo
+            </p>
             <div className="w-full">
               <p style={{ color:'var(--muted)', fontSize:'0.82rem', marginBottom:8 }}>Ya naam edit karo:</p>
               <div className="flex gap-2 w-full">
