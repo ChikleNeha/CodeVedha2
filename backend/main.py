@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database.db import init_db
-from routes import users, progress, lesson, tutor, quiz, tts, stt, code
+from routes import users, progress, lesson, tutor, quiz, tts, stt
+from routes.code_tutor import router as code_tutor_router
+
 
 
 @asynccontextmanager
@@ -28,7 +30,8 @@ app.include_router(tutor.router, prefix="/api")
 app.include_router(quiz.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(stt.router, prefix="/api")
-app.include_router(code.router, prefix="/api")
+# app.include_router(code.router, prefix="/api")
+app.include_router(code_tutor_router, prefix="/api")
 
 
 @app.get("/")

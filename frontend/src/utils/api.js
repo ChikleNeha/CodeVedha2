@@ -64,5 +64,40 @@ export const getQuiz = (session_id, module_id, difficulty = 'beginner') =>
 export const submitQuizResult = (data) =>
   api.post('/quiz/result', data).then(r => r.data)
 
-export const runCode = (spoken_text, current_module) =>
-  api.post('/code/run', { spoken_text, current_module }).then(r => r.data)
+// Step 1: convert spoken text → Python code
+// Step 2: run that code and return combined result
+export const runCode = async (spoken_text, current_module) => {
+  // Generate code from spoken text
+  const generated = await api.post('/code/generate', {
+    session_id: 'frontend',
+    audio_text: spoken_text,
+    module_id: current_module?.id ?? null,
+  }).then(r => r.data)
+
+  // Run the generated code
+  const result = await api.post('/code/run', {
+    session_id: 'frontend',
+    code: generated.code,
+  }).then(r => r.data)
+
+  // If there was an error, get a Hinglish explanation
+  let error_explanation = ''
+  if (!result.success && result.stderr) {
+    const explained = await api.post('/code/explain-error', {
+      session_id: 'frontend',
+      code: generated.code,
+      error: result.stderr,
+    }).then(r => r.data).catch(() => ({ explanation: '' }))
+    error_explanation = explained.explanation
+  }
+
+  // Return shape that CodeView.jsx already expects
+  return {
+    code: generated.code,
+    output: result.stdout,
+    error: result.stderr,
+    error_explanation,
+    success: result.success,
+    speech_output: result.speech_output,
+  }
+}

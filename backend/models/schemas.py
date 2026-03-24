@@ -92,3 +92,43 @@ class QuizResultResponse(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = "nova"
+
+
+# Add these classes to your existing schemas.py
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class CodeGenerateRequest(BaseModel):
+    session_id: str
+    audio_text: str          # transcribed speech from the user
+    module_id: Optional[int] = None
+    difficulty: Optional[str] = "beginner"
+
+
+class CodeGenerateResponse(BaseModel):
+    code: str                # raw executable Python code
+    speech_prompt: str       # what to speak before showing/running code
+
+
+class CodeRunRequest(BaseModel):
+    session_id: str
+    code: str                # Python code to execute
+
+
+class CodeRunResponse(BaseModel):
+    stdout: str
+    stderr: str
+    success: bool
+    speech_output: str       # TTS-ready Hinglish summary of result
+
+
+class CodeExplainRequest(BaseModel):
+    session_id: str
+    code: str
+    error: str               # the stderr / error message
+
+
+class CodeExplainResponse(BaseModel):
+    explanation: str         # plain Hinglish, no markdown, screen-reader safe
