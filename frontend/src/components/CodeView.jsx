@@ -6,13 +6,33 @@ import { stopAllAudio } from '../hooks/useTTS'
 export default function CodeView() {
   const { currentModule, tts, stt } = useApp()
 
-  const [history, setHistory]         = useState([])     // [{spoken, code, output, error, errorExpl, success}]
+  const [history, setHistory]           = useState([])     // [{spoken, code, output, error, errorExpl, success}]
   const [isRecording, setIsRecording] = useState(false)
   const [isRunning, setIsRunning]     = useState(false)
   const [textInput, setTextInput]     = useState('')
   const [liveTranscript, setLiveTranscript] = useState('')
   const lastOutputRef = useRef('')
   const historyEndRef = useRef(null)
+  
+  // Ref to ensure the intro only plays exactly once per page load
+  const hasSpokenIntro = useRef(false)
+
+  // --- PLAY INTRO ONLY ONCE ON LOAD ---
+  useEffect(() => {
+    if (!hasSpokenIntro.current) {
+      const playIntro = async () => {
+        // Small delay so it doesn't feel abrupt
+        await new Promise(r => setTimeout(r, 500));
+        tts.speak("Code Practice page par aapka swagat hai. Python code likhne ke liye Space dabao aur bolo.");
+      };
+
+      playIntro();
+      hasSpokenIntro.current = true; // Mark as spoken
+    }
+
+    // Stop audio if user leaves the page immediately
+    return () => stopAllAudio();
+  }, [tts]); 
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -37,12 +57,14 @@ export default function CodeView() {
     return () => window.removeEventListener('keydown', handler)
   }, [isRecording, isRunning, tts, stt]) // eslint-disable-line
 
+
   // Scroll to bottom when history updates
   useEffect(() => {
     setTimeout(() => {
       if (historyEndRef.current) historyEndRef.current.scrollTop = historyEndRef.current.scrollHeight
     }, 80)
   }, [history])
+
 
   const startRecording = useCallback(async () => {
     if (isRecording || isRunning) return
@@ -62,10 +84,12 @@ export default function CodeView() {
     })
   }, [isRecording, isRunning, tts, stt]) // eslint-disable-line
 
+
   const stopRecording = useCallback(() => {
     stt.stopListening()
     setIsRecording(false)
   }, [stt])
+
 
   const executeSpokenCode = useCallback(async (spoken) => {
     setIsRunning(true)
@@ -97,6 +121,7 @@ export default function CodeView() {
     setLiveTranscript('')
   }, [currentModule, tts])
 
+
   const handleTextSubmit = useCallback(async () => {
     const txt = textInput.trim()
     if (!txt || isRunning) return
@@ -104,6 +129,7 @@ export default function CodeView() {
     setLiveTranscript(txt)
     await executeSpokenCode(txt)
   }, [textInput, isRunning, executeSpokenCode])
+
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>

@@ -58,6 +58,21 @@ export default function QuizView({ onDifficultyChange }) {
     return () => window.removeEventListener('keydown', handler)
   }, []) // eslint-disable-line
 
+  // ... your existing keyboard useEffect ...
+
+// ✅ NEW: Auto-intro audio when quiz page loads
+useEffect(() => {
+  if (uiState === S.IDLE && currentModule) {
+    const introTimer = setTimeout(async () => {
+      stopAllAudio(); // Clear any previous audio
+      await tts.speak(`${mod.title} module ka quiz page khula hai. Taiyaar ho jao! Enter ya Space dabao quiz shuru karne ke liye. 1 se 4 keys jawab dene ke liye.`);
+    }, 1000); // 1s delay for smooth UX
+    
+    return () => clearTimeout(introTimer);
+  }
+}, [currentModule, mod.title, tts, uiState]);
+
+
   const speakQuestion = useCallback(async (qs, i) => {
     const q = qs[i]
     if (!q) return
