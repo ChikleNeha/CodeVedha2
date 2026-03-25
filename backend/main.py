@@ -30,7 +30,6 @@ app.include_router(tutor.router, prefix="/api")
 app.include_router(quiz.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(stt.router, prefix="/api")
-# app.include_router(code.router, prefix="/api")
 app.include_router(code_tutor_router, prefix="/api")
 
 

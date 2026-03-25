@@ -41,12 +41,12 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
 
 CREATE TABLE IF NOT EXISTS lessons (
     id INTEGER PRIMARY KEY,
-    session_id TEXT,
-    module_id INTEGER,
-    difficulty TEXT,
-    content TEXT,
-    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    module_id INTEGER NOT NULL,  -- Match your code (no session_id)
+    difficulty TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,

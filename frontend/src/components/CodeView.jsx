@@ -14,27 +14,20 @@ export default function CodeView() {
   const lastOutputRef = useRef('')
   const historyEndRef = useRef(null)
   
-  // Ref to ensure the intro only plays exactly once per page load
   const hasSpokenIntro = useRef(false)
 
-  // --- PLAY INTRO ONLY ONCE ON LOAD ---
   useEffect(() => {
     if (!hasSpokenIntro.current) {
       const playIntro = async () => {
-        // Small delay so it doesn't feel abrupt
         await new Promise(r => setTimeout(r, 500));
         tts.speak("Code Practice page par aapka swagat hai. Python code likhne ke liye Space dabao aur bolo.");
       };
-
       playIntro();
-      hasSpokenIntro.current = true; // Mark as spoken
+      hasSpokenIntro.current = true;
     }
-
-    // Stop audio if user leaves the page immediately
     return () => stopAllAudio();
   }, [tts]); 
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = async (e) => {
       const typing = ['input','textarea'].includes(document.activeElement?.tagName?.toLowerCase())
@@ -57,8 +50,6 @@ export default function CodeView() {
     return () => window.removeEventListener('keydown', handler)
   }, [isRecording, isRunning, tts, stt]) // eslint-disable-line
 
-
-  // Scroll to bottom when history updates
   useEffect(() => {
     setTimeout(() => {
       if (historyEndRef.current) historyEndRef.current.scrollTop = historyEndRef.current.scrollHeight
@@ -96,14 +87,20 @@ export default function CodeView() {
     await tts.speak('Code run ho raha hai...')
     try {
       const result = await runCode(spoken, currentModule)
-      const entry = { spoken, code: result.code, output: result.output,
-        error: result.error, errorExpl: result.error_explanation, success: result.success }
+      const entry = {
+        spoken,
+        code: result.code,
+        output: result.output,
+        error: result.error,
+        errorExpl: result.error_explanation,
+        success: result.success,
+      }
       setHistory(prev => [...prev, entry])
 
       let toSpeak = ''
       if (result.success && result.output) {
         toSpeak = `Code chal gaya! Output hai: ${result.output}`
-      } else if (result.error) {
+      } else if (!result.success && result.error) {
         toSpeak = result.error_explanation || `Error aayi: ${result.error}`
       } else if (result.output) {
         toSpeak = `Output: ${result.output}`
@@ -238,7 +235,7 @@ export default function CodeView() {
               </div>
             )}
 
-            {/* Output */}
+            {/* ✅ Success with output */}
             {entry.success && entry.output && (
               <div style={{ background:'rgba(74,222,128,0.08)', border:'1px solid rgba(74,222,128,0.25)',
                 borderRadius:12, padding:'14px 18px' }}
@@ -252,7 +249,7 @@ export default function CodeView() {
               </div>
             )}
 
-            {/* No output success */}
+            {/* ✅ Success with no output */}
             {entry.success && !entry.output && (
               <div style={{ background:'rgba(74,222,128,0.06)', border:'1px solid rgba(74,222,128,0.2)',
                 borderRadius:12, padding:'12px 16px' }}>
@@ -260,8 +257,8 @@ export default function CodeView() {
               </div>
             )}
 
-            {/* Error */}
-            {entry.error && (
+            {/* ❌ Error — only shown when success is false */}
+            {!entry.success && entry.error && (
               <div style={{ background:'rgba(255,95,95,0.08)', border:'1px solid rgba(255,95,95,0.25)',
                 borderRadius:12, padding:'14px 18px' }}
                 role="alert" aria-label={`Error: ${entry.errorExpl || entry.error}`}>
@@ -313,7 +310,7 @@ export default function CodeView() {
           </div>
         </div>
 
-        {/* Text fallback — always visible */}
+        {/* Text fallback */}
         <div style={{ display:'flex', gap:8 }}>
           <input type="text" value={textInput} onChange={e => setTextInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleTextSubmit()}

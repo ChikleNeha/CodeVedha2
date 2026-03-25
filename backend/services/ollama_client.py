@@ -1,50 +1,104 @@
 import httpx
 import json
-import os
-from dotenv import load_dotenv
+from typing import List, Dict, AsyncGenerator
 
-load_dotenv()
+# Ollama runs locally — no API key needed
+OLLAMA_BASE_URL = "http://localhost:11434"
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+# Change this to whichever model you have pulled:
+#   ollama pull mistral        → "mistral"
+#   ollama pull llama3.2       → "llama3.2"
+#   ollama pull codellama      → "codellama"   (best for code generation)
+#   ollama pull qwen2.5-coder  → "qwen2.5-coder" (also great for code)
+OLLAMA_MODEL = "llama3.2"  # ← change to your pulled model name
 
 
-async def ollama_chat(system: str, messages: list, model: str = None) -> str:
-    m = model or OLLAMA_MODEL
+async def ollama_chat(system_instruction: str, messages: List[Dict[str, str]]) -> str:
+    """
+    Non-streaming Ollama call. Returns full response as a string.
+    Used by: code_tutor, quiz, tutor (non-stream endpoints)
+    """
     payload = {
-        "model": m,
+        "model": OLLAMA_MODEL,
         "stream": False,
-        "messages": [{"role": "system", "content": system}] + messages,
-        "options": {"num_predict": 512, "temperature": 0.7}  # ✅ Faster
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            *messages,
+        ],
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 512,
+        }
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, read=240.0)) as client:  # 5min total, 4min read
-        resp = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["message"]["content"].strip()
+
+        except httpx.ConnectError:
+            raise Exception(
+                "Ollama se connect nahi ho paya. "
+                "Kya aapne 'ollama serve' run kiya hai?"
+            )
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"Ollama HTTP error {e.response.status_code}: {e.response.text}")
+        except KeyError:
+            raise Exception(f"Unexpected Ollama response format: {data}")
 
 
-async def ollama_chat_stream(system: str, messages: list, model: str = None):
+async def ollama_chat_stream(
+    system_instruction: str,
+    messages: List[Dict[str, str]]
+) -> AsyncGenerator[str, None]:
     """
-    Async generator yielding text chunks from Ollama streaming.
+    Streaming Ollama call. Yields text tokens one by one as they arrive.
+    Used by: lesson.py stream endpoint, tutor stream endpoint.
     """
-    m = model or OLLAMA_MODEL
     payload = {
-        "model": m,
+        "model": OLLAMA_MODEL,
         "stream": True,
-        "messages": [{"role": "system", "content": system}] + messages
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            *messages,
+        ],
+        "options": {
+            "temperature": 0.3,
+            "num_predict": 1024,
+        }
     }
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("POST", f"{OLLAMA_BASE_URL}/api/chat", json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    data = json.loads(line)
-                    chunk = data.get("message", {}).get("content", "")
-                    if chunk:
-                        yield chunk
-                    if data.get("done"):
-                        break
-                except json.JSONDecodeError:
-                    continue
+        try:
+            async with client.stream(
+                "POST",
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                        token = data.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+                        # Ollama sends {"done": true} as the last message
+                        if data.get("done"):
+                            break
+                    except json.JSONDecodeError:
+                        continue  # skip malformed lines
+
+        except httpx.ConnectError:
+            raise Exception(
+                "Ollama se connect nahi ho paya. "
+                "Kya aapne 'ollama serve' run kiya hai?"
+            )
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"Ollama HTTP error {e.response.status_code}: {e.response.text}")

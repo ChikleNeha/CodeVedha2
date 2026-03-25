@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 
 
 class UserCreate(BaseModel):
@@ -52,6 +52,13 @@ class TutorResponse(BaseModel):
     response: str
     difficulty: Optional[str] = None
     lesson_adjustment: bool = False
+
+class StreamingTutorResponse(BaseModel):
+    type: Literal["chunk", "done", "difficulty", "adjustment"]
+    content: Optional[str] = None
+    difficulty: Optional[str] = None
+    lesson_adjustment: Optional[bool] = None
+
 
 
 class QuizQuestion(BaseModel):

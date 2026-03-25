@@ -12,13 +12,20 @@ export function AppProvider({ children }) {
     if (!id) { id = uuidv4(); localStorage.setItem('ac_session_id', id) }
     return id
   })
-  const [currentModule, setCurrentModule] = useState(1)
+  const [currentModule, setCurrentModule]     = useState(1)
   const [difficultyLevel, setDifficultyLevel] = useState('beginner')
-  const [lessonState, setLessonState] = useState('idle')
-  const [isHighContrast, setIsHighContrast] = useState(() => localStorage.getItem('ac_high_contrast') === 'true')
-  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('ac_font_size') || '1'))
+  const [lessonState, setLessonState]         = useState('idle')
+  const [isHighContrast, setIsHighContrast]   = useState(
+    () => localStorage.getItem('ac_high_contrast') === 'true'
+  )
+  const [fontSize, setFontSize] = useState(
+    () => parseInt(localStorage.getItem('ac_font_size') || '1')
+  )
 
+  // Tracks the last thing spoken so R-key replay works from anywhere,
+  // including streaming lessons in LessonView.
   const lastSpokenRef = useRef('')
+
   const tts = useTTS()
   const stt = useSTT()
 
@@ -36,12 +43,20 @@ export function AppProvider({ children }) {
     localStorage.setItem('ac_username', name)
   }, [])
 
+  // Used by components that speak via tts.speak() — stores text for replay
   const speakAndStore = useCallback(async (text) => {
     if (!text) return
     lastSpokenRef.current = text
     await tts.speak(text)
   }, [tts])
 
+  // Used by LessonView to update what "last spoken" is during/after streaming,
+  // without triggering a re-speak (streaming TTS handles the actual audio).
+  const setLastSpoken = useCallback((text) => {
+    if (text) lastSpokenRef.current = text
+  }, [])
+
+  // R-key handler — replays whatever was last spoken
   const replayLast = useCallback(() => {
     if (lastSpokenRef.current) tts.speak(lastSpokenRef.current)
   }, [tts])
@@ -68,7 +83,10 @@ export function AppProvider({ children }) {
       lessonState, setLessonState,
       isHighContrast, toggleHighContrast,
       fontSize, changeFontSize,
-      tts, stt, speakAndStore, replayLast
+      tts, stt,
+      speakAndStore,
+      setLastSpoken,   // ← new: for streaming lesson text
+      replayLast,
     }}>
       {children}
     </AppContext.Provider>

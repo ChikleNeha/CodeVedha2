@@ -55,6 +55,54 @@ export function streamLesson(session_id, module_id, difficulty, { onStatus, onCh
   return () => ctrl.abort()
 }
 
+export function streamTutor(sessionId, moduleId, message, difficulty, lessonContext, callbacks = {}) {
+  const ctrl = new AbortController()
+
+  fetch('/api/tutor/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      module_id: moduleId,
+      message,
+      difficulty,
+      lesson_context: lessonContext
+    }),
+    signal: ctrl.signal
+  }).then(async (res) => {
+    if (!res.ok) throw new Error('Tutor stream failed')
+    const reader = res.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() || ''          // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6).trim()
+        if (!raw) continue
+        try {
+          const ev = JSON.parse(raw)
+          // In streamTutor's event loop, add one case:
+          if (ev.type === 'chunk')   callbacks.onChunk?.(ev.content)
+          if (ev.type === 'replace') callbacks.onReplace?.(ev.content)  // ← add this
+          if (ev.type === 'done')    callbacks.onDone?.({ difficulty: ev.difficulty, lesson_adjustment: ev.lesson_adjustment })
+          if (ev.type === 'error')   callbacks.onError?.(ev.content)
+        } catch (e) {}
+      }
+    }
+  }).catch(err => {
+    if (err.name !== 'AbortError') callbacks.onError?.(err.message)
+  })
+
+  return () => ctrl.abort()   // returns a sync cancel fn — no await needed
+}
+
 export const chat = (session_id, module_id, message, difficulty, lesson_context) =>
   api.post('/tutor', { session_id, module_id, message, difficulty, lesson_context }).then(r => r.data)
 
@@ -66,6 +114,44 @@ export const submitQuizResult = (data) =>
 
 // Step 1: convert spoken text → Python code
 // Step 2: run that code and return combined result
+// export const runCode = async (spoken_text, current_module) => {
+//   // Generate code from spoken text
+//   const generated = await api.post('/code/generate', {
+//     session_id: 'frontend',
+//     audio_text: spoken_text,
+//     module_id: current_module?.id ?? null,
+//   }).then(r => r.data)
+
+//   // Run the generated code
+//   const result = await api.post('/code/run', {
+//     session_id: 'frontend',
+//     code: generated.code,
+//   }).then(r => r.data)
+
+//   // If there was an error, get a Hinglish explanation
+//   let error_explanation = ''
+//   if (!result.success && result.stderr) {
+//     const explained = await api.post('/code/explain-error', {
+//       session_id: 'frontend',
+//       code: generated.code,
+//       error: result.stderr,
+//     }).then(r => r.data).catch(() => ({ explanation: '' }))
+//     error_explanation = explained.explanation
+//   }
+
+//   // Return shape that CodeView.jsx already expects
+//   return {
+//     code: generated.code,
+//     output: result.stdout,
+//     error: result.stderr,
+//     error_explanation,
+//     success: result.success,
+//     speech_output: result.speech_output,
+//   }
+// }
+
+// Step 1: convert spoken text → Python code
+// Step 2: ask LLM to predict the output of that code
 export const runCode = async (spoken_text, current_module) => {
   // Generate code from spoken text
   const generated = await api.post('/code/generate', {
@@ -74,13 +160,13 @@ export const runCode = async (spoken_text, current_module) => {
     module_id: current_module?.id ?? null,
   }).then(r => r.data)
 
-  // Run the generated code
+  // Ask LLM to predict the output (no subprocess)
   const result = await api.post('/code/run', {
     session_id: 'frontend',
     code: generated.code,
   }).then(r => r.data)
 
-  // If there was an error, get a Hinglish explanation
+  // If LLM detected an error, get a Hinglish explanation
   let error_explanation = ''
   if (!result.success && result.stderr) {
     const explained = await api.post('/code/explain-error', {
@@ -91,11 +177,11 @@ export const runCode = async (spoken_text, current_module) => {
     error_explanation = explained.explanation
   }
 
-  // Return shape that CodeView.jsx already expects
+  // Return shape that CodeView.jsx expects
   return {
     code: generated.code,
-    output: result.stdout,
-    error: result.stderr,
+    output: result.stdout,       // LLM-predicted output or description
+    error: result.stderr,        // only set if LLM detected an error
     error_explanation,
     success: result.success,
     speech_output: result.speech_output,
