@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useApp } from '../context/AppContext'
 import { stopAllAudio } from '../hooks/useTTS'
-import { getProgress, updateProgress } from '../utils/api'
+import { getProgress } from '../utils/api'
 import ModuleSidebar from '../components/ModuleSidebar'
 import LessonView from '../components/LessonView'
 import QuizView from '../components/QuizView'
@@ -24,15 +24,15 @@ export default function LearnPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [diffBadge, setDiffBadge]     = useState(difficultyLevel)
   const [badgeAnim, setBadgeAnim]     = useState(false)
-  const [readingHelp, setReadingHelp] = useState(false) // true while TTS is reading shortcuts
+  const [readingHelp, setReadingHelp] = useState(false)
 
   const activeTabRef     = useRef(TABS.LESSON)
   const currentModuleRef = useRef(currentModule)
-  const helpReadingRef   = useRef(false) // ref mirror so keyboard handler can check
+  const helpReadingRef   = useRef(false)
 
-  useEffect(() => { activeTabRef.current = activeTab }, [activeTab])
+  useEffect(() => { activeTabRef.current = activeTab },       [activeTab])
   useEffect(() => { currentModuleRef.current = currentModule }, [currentModule])
-  useEffect(() => { setDiffBadge(difficultyLevel) }, [difficultyLevel])
+  useEffect(() => { setDiffBadge(difficultyLevel) },          [difficultyLevel])
 
   // ── PROGRESS ───────────────────────────────────────────────────────────────
   const refreshProgress = useCallback(() => {
@@ -53,7 +53,7 @@ export default function LearnPage() {
     const msg = newDiff === 'intermediate' ? 'Difficulty badh gayi — intermediate!'
               : newDiff === 'advanced'     ? 'Difficulty badh gayi — advanced!'
               : 'Wapas beginner level pe practice karte hain.'
-    tts.speak(msg)
+    tts.stopAndSpeak(msg)   // interrupt lesson audio, speak badge change
     refreshProgress()
   }, [setDifficultyLevel, tts, refreshProgress])
 
@@ -64,32 +64,29 @@ export default function LearnPage() {
     const avg       = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
     await tts.speak(
       `Aapne ${completed} mein se 5 modules complete kiye hain. ` +
-      `Aapka average quiz score ${avg} out of 5 hai.`
+      `Average quiz score ${avg} out of 5 hai.`
     )
   }, [progress, tts])
 
   // ── HELP AUDIO ─────────────────────────────────────────────────────────────
-  // Reads every shortcut aloud: "L — Lesson tab. Q — Quiz tab. ..."
-  // Called when help opens via H key or ? button.
   const speakHelp = useCallback(async () => {
-    if (helpReadingRef.current) return   // already reading
+    if (helpReadingRef.current) return
     helpReadingRef.current = true
     setReadingHelp(true)
 
+    // Stop whatever was playing, then read shortcuts sequentially
     stopAllAudio()
+    await new Promise(r => setTimeout(r, 120))   // let cancel settle
 
-    // Opening line
-    await tts.speak('Keyboard shortcuts. Press Escape to close.')
+    await tts.speak('Keyboard shortcuts.')
 
-    // Read each shortcut: "Key [key]. Action [action]."
     for (const s of SHORTCUTS) {
-      if (!helpReadingRef.current) break  // ESC pressed mid-reading
-      await tts.speak(`${s.key} — ${s.action}.`)
+      if (!helpReadingRef.current) break          // user closed/ESC mid-reading
+      await tts.speak(`${s.key}. ${s.action}.`)  // each shortcut is its own speak() call
     }
 
-    // Closing line (only if we weren't interrupted)
     if (helpReadingRef.current) {
-      await tts.speak('End of shortcuts. Press Escape to close help.')
+      await tts.speak('End of shortcuts. Press Escape to close.')
     }
 
     helpReadingRef.current = false
@@ -102,7 +99,6 @@ export default function LearnPage() {
   }, [speakHelp])
 
   const closeHelp = useCallback(() => {
-    // Stop reading immediately when user closes
     helpReadingRef.current = false
     setReadingHelp(false)
     stopAllAudio()
@@ -114,26 +110,18 @@ export default function LearnPage() {
     const handler = async (e) => {
       const typing = ['input', 'textarea'].includes(document.activeElement?.tagName?.toLowerCase())
 
-      if (e.key === 'Escape') {
-        stopAllAudio()
-        closeHelp()
-        return
-      }
-
+      if (e.key === 'Escape') { closeHelp(); return }
       if (typing) return
 
-      if (e.key === 'l' || e.key === 'L') { e.preventDefault(); setActiveTab(TABS.LESSON); tts.speak('Lesson tab') }
-      if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); setActiveTab(TABS.QUIZ);   tts.speak('Quiz tab') }
-      if (e.key === 'x' || e.key === 'X') { e.preventDefault(); setActiveTab(TABS.CODE);   tts.speak('Code tab') }
+      // All key-triggered speech uses stopAndSpeak so it cuts through any ongoing audio
+      if (e.key === 'l' || e.key === 'L') { e.preventDefault(); setActiveTab(TABS.LESSON); tts.stopAndSpeak('Lesson tab') }
+      if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); setActiveTab(TABS.QUIZ);   tts.stopAndSpeak('Quiz tab') }
+      if (e.key === 'x' || e.key === 'X') { e.preventDefault(); setActiveTab(TABS.CODE);   tts.stopAndSpeak('Code tab') }
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); replayLast() }
 
       if (e.key === 'h' || e.key === 'H') {
         e.preventDefault()
-        if (showHelp) {
-          closeHelp()
-        } else {
-          openHelp()
-        }
+        showHelp ? closeHelp() : openHelp()
       }
 
       if (e.key === 'n' || e.key === 'N') {
@@ -143,7 +131,7 @@ export default function LearnPage() {
         if (next !== mod) {
           setCurrentModule(next)
           const m = MODULES.find(x => x.id === next)
-          if (m) tts.speak(`${m.icon} ${m.title}`)
+          if (m) tts.stopAndSpeak(`${m.icon} ${m.title}`)
         }
       }
 
@@ -155,7 +143,7 @@ export default function LearnPage() {
           if (prev !== mod) {
             setCurrentModule(prev)
             const m = MODULES.find(x => x.id === prev)
-            if (m) tts.speak(`${m.icon} ${m.title}`)
+            if (m) tts.stopAndSpeak(`${m.icon} ${m.title}`)
           } else {
             await speakProgressSummary()
           }
@@ -165,13 +153,13 @@ export default function LearnPage() {
       if (e.altKey && e.key === 'c') {
         e.preventDefault()
         toggleHighContrast()
-        tts.speak(isHighContrast ? 'High contrast off' : 'High contrast on')
+        tts.stopAndSpeak(isHighContrast ? 'High contrast off' : 'High contrast on')
       }
 
       if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
         e.preventDefault()
         changeFontSize(parseInt(e.key) - 1)
-        tts.speak(`Font size ${e.key}`)
+        tts.stopAndSpeak(`Font size ${e.key}`)
       }
     }
     window.addEventListener('keydown', handler)
@@ -179,11 +167,9 @@ export default function LearnPage() {
   }, [isHighContrast, toggleHighContrast, changeFontSize, replayLast, tts,
       setCurrentModule, speakProgressSummary, showHelp, openHelp, closeHelp]) // eslint-disable-line
 
-  // ── DERIVED ────────────────────────────────────────────────────────────────
   const DIFF_COLORS = { beginner: '#4ade80', intermediate: '#a855f7', advanced: '#ec4899' }
   const currentMod  = MODULES.find(m => m.id === currentModule) || MODULES[0]
 
-  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh',
       background: 'var(--ink)', color: 'var(--text)', overflow: 'hidden' }}>
@@ -277,14 +263,11 @@ export default function LearnPage() {
 
       {/* ── Help overlay ── */}
       {showHelp && (
-        <div
-          role="dialog"
-          aria-label="Keyboard shortcuts"
-          aria-modal="true"
+        <div role="dialog" aria-label="Keyboard shortcuts" aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-5"
           style={{ background: 'rgba(0,0,0,0.75)' }}
-          onClick={e => { if (e.target === e.currentTarget) closeHelp() }}
-        >
+          onClick={e => { if (e.target === e.currentTarget) closeHelp() }}>
+
           <div className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10"
             style={{ background: 'var(--card)' }}>
 
@@ -295,26 +278,19 @@ export default function LearnPage() {
                 <h2 className="text-lg font-bold text-white" style={{ fontFamily: 'Syne, sans-serif' }}>
                   ⌨️ Keyboard Shortcuts
                 </h2>
-                {/* Reading status indicator */}
                 <div className="flex items-center gap-2 mt-1 h-5">
                   {readingHelp ? (
                     <>
-                      {/* Animated bars while reading */}
                       <div className="flex gap-0.5 items-end h-3.5">
                         {[0, 1, 2].map(i => (
                           <div key={i} className="w-0.5 rounded-full bg-purple-400"
-                            style={{
-                              height: '100%',
-                              animation: 'waveHelp 0.7s ease-in-out infinite',
-                              animationDelay: `${i * 0.15}s`,
-                            }} />
+                            style={{ height: '100%', animation: `waveHelp 0.7s ease-in-out ${i * 0.15}s infinite` }} />
                         ))}
                       </div>
                       <span className="text-purple-400 text-xs">Reading aloud...</span>
                       <button
                         onClick={() => { helpReadingRef.current = false; setReadingHelp(false); stopAllAudio() }}
-                        className="text-xs text-gray-500 hover:text-white underline transition-colors"
-                      >
+                        className="text-xs text-gray-500 hover:text-white underline transition-colors ml-1">
                         stop
                       </button>
                     </>
@@ -323,43 +299,37 @@ export default function LearnPage() {
                   )}
                 </div>
               </div>
-
-              <button
-                autoFocus
-                onClick={closeHelp}
-                aria-label="Close help"
+              <button autoFocus onClick={closeHelp} aria-label="Close help"
                 className="flex items-center justify-center w-8 h-8 rounded-lg border border-white/10
-                  text-gray-400 hover:text-white hover:border-white/30 transition-all text-sm"
-              >
+                  text-gray-400 hover:text-white hover:border-white/30 transition-all text-sm">
                 ✕
               </button>
             </div>
 
-            {/* Shortcuts table */}
+            {/* Shortcuts list */}
             <div className="px-7 py-4">
               <table className="w-full border-collapse">
                 <tbody>
                   {SHORTCUTS.map((s, i) => (
-                    <tr key={i} className="border-b border-white/6 group">
+                    <tr key={i} className="border-b border-white/6">
                       <td className="py-3 w-2/5">
                         <kbd className="inline-block bg-white/8 border border-white/15 rounded-md
                           px-2.5 py-1 font-mono text-[0.78rem] text-purple-300 leading-none">
                           {s.key}
                         </kbd>
                       </td>
-                      <td className="py-3 text-gray-300 text-sm leading-relaxed">
-                        {s.action}
-                      </td>
+                      <td className="py-3 text-gray-300 text-sm leading-relaxed">{s.action}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            {/* Footer */}
             <div className="px-7 pb-5 pt-1">
               <p className="text-center text-gray-600 text-xs">
-                Press <kbd className="bg-white/8 border border-white/15 rounded px-1.5 py-0.5 font-mono text-gray-400 text-[10px]">Esc</kbd> or click outside to close
+                Press{' '}
+                <kbd className="bg-white/8 border border-white/15 rounded px-1.5 py-0.5 font-mono text-gray-400 text-[10px]">Esc</kbd>
+                {' '}or click outside to close
               </p>
             </div>
           </div>

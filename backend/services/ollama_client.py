@@ -12,6 +12,9 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 #   ollama pull qwen2.5-coder  → "qwen2.5-coder" (also great for code)
 OLLAMA_MODEL = "llama3.2"  # ← change to your pulled model name
 
+# Explicit timeout config — local LLMs need time to generate full responses
+OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
+
 
 async def ollama_chat(system_instruction: str, messages: List[Dict[str, str]]) -> str:
     """
@@ -27,11 +30,11 @@ async def ollama_chat(system_instruction: str, messages: List[Dict[str, str]]) -
         ],
         "options": {
             "temperature": 0.2,
-            "num_predict": 512,
+            "num_predict": 1024,  # increased from 512 — prevents truncated JSON
         }
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
         try:
             response = await client.post(
                 f"{OLLAMA_BASE_URL}/api/chat",
@@ -41,6 +44,11 @@ async def ollama_chat(system_instruction: str, messages: List[Dict[str, str]]) -
             data = response.json()
             return data["message"]["content"].strip()
 
+        except httpx.ReadTimeout:
+            raise Exception(
+                "Ollama response timeout. Model generate karne mein zyada time le raha hai. "
+                "Try karein: ollama pull llama3.2 (smaller model) ya num_predict kam karein."
+            )
         except httpx.ConnectError:
             raise Exception(
                 "Ollama se connect nahi ho paya. "
@@ -73,7 +81,7 @@ async def ollama_chat_stream(
         }
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
         try:
             async with client.stream(
                 "POST",
@@ -95,6 +103,11 @@ async def ollama_chat_stream(
                     except json.JSONDecodeError:
                         continue  # skip malformed lines
 
+        except httpx.ReadTimeout:
+            raise Exception(
+                "Ollama stream timeout. Token generation ruk gayi. "
+                "Kya Ollama abhi bhi chal raha hai?"
+            )
         except httpx.ConnectError:
             raise Exception(
                 "Ollama se connect nahi ho paya. "
